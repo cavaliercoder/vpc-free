@@ -24,9 +24,10 @@ def get_vpc(vpcid):
     for vpc in EC2.describe_vpcs()['Vpcs']:
         if vpc['VpcId'] == vpcid:
             return vpc
-        for tag in vpc['Tags']:
-            if tag['Key'] == 'Name' and tag['Value'] == vpcid:
-                return vpc
+        if 'Tags' in vpc:
+            for tag in vpc['Tags']:
+                if tag['Key'] == 'Name' and tag['Value'] == vpcid:
+                    return vpc
     return None
 
 def name_by_id(resource, key):
@@ -243,15 +244,12 @@ def main():
         description='Find free IP blocks in AWS EC2.')
 
     parser.add_argument('target',
-                        nargs='?',
                         metavar='TARGET',
                         help='CIDR, VPC ID or VPC Name to search')
 
     args = parser.parse_args()
 
-    if not args.target:
-        do_vpc('DEFAULT')
-    elif match(r"^[0-9\.]+/[0-9]+$", args.target):
+    if match(r"^[0-9\.]+/[0-9]+$", args.target):
         do_cidr(args.target)
     else:
         do_vpc(args.target)

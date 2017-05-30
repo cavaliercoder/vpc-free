@@ -12,4 +12,7 @@ clean:
 		build \
 		dist
 
+upload:
+	python setup.py sdist upload
+
 .PHONY: all dist install clean
