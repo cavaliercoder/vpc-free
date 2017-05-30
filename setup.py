@@ -28,4 +28,5 @@ setup(name='vpc-free',
       author='Ryan Armstrong',
       author_email='ryan@cavaliercoder.com',
       license='Apache License 2.0',
+      install_requires=['boto3'],
       scripts=['bin/vpc-free'])
