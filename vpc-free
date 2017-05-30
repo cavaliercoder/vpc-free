@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import argparse
 import math
 import sys
 import struct
@@ -250,12 +251,22 @@ def main():
     main executes the main thread.
     """
 
-    if len(sys.argv) < 2:
+    parser = argparse.ArgumentParser(
+        description='Find free IP blocks in AWS EC2.')
+
+    parser.add_argument('target',
+                        nargs='?',
+                        metavar='TARGET',
+                        help='CIDR, VPC ID or VPC Name to search')
+
+    args = parser.parse_args()
+
+    if not args.target:
         do_vpc('DEFAULT')
-    elif match(r"^[0-9\.]+/[0-9]+$", sys.argv[1]):
-        do_cidr(sys.argv[1])
+    elif match(r"^[0-9\.]+/[0-9]+$", args.target):
+        do_cidr(args.target)
     else:
-        do_vpc(sys.argv[1])
+        do_vpc(args.target)
 
 if __name__ == '__main__':
     main()
