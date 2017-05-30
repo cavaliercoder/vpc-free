@@ -70,18 +70,23 @@ def range_to_info(cidr):
     size = cidr[1] - cidr[0] + 1
 
     mask_str = ''
+    best_str = ''
     mask = 32 - int(math.log(cidr[1] - cidr[0] + 1, 2))
     snmask = 0xFFFFFFFF ^ (1 << 32 - mask) - 1
-    if cidr[0] == cidr[0] & snmask:
+    n_addr = cidr[0] & snmask
+    if cidr[0] == n_addr:
         bcast = cidr[0] | (0xFFFFFFFF ^ snmask)
         if cidr[1] == bcast:
             mask_str = '/{}'.format(mask)
         else:
-            mask_str = '/{}+'.format(mask)
+            best_str = '{}/{}'.format(min_addr, mask)
     else:
-        mask_str = '/{}*'.format(max(mask, min_mask(cidr[0])))
+        # increment network by 1
+        n_addr += 2 ** (32 - mask)
+        mask = 32 - int(math.log(cidr[1] - n_addr + 1, 2))
+        best_str = '{}/{}'.format(inet_ntoa(struct.pack("!I", n_addr)), mask)
 
-    return (min_addr, max_addr, mask_str, size)
+    return (min_addr, max_addr, mask_str, size, best_str)
 
 
 def is_overlap(parent, child):
@@ -186,10 +191,10 @@ def print_blocks(blocks):
         if block[2] == 'FREE':
             color = 32 # green
         iprange = range_to_info(block)
-        data.append((color, iprange[0], iprange[1], iprange[2], iprange[3], block[2]))
+        data.append((color, iprange[0], iprange[1], iprange[2], iprange[3], iprange[4], block[2]))
 
     print_table(data,
-                headers=['MIN IP', 'MAX IP', 'MASK', 'SIZE', 'LABEL'],
+                headers=['MIN IP', 'MAX IP', 'MASK', 'SIZE', 'BEST', 'LABEL'],
                 colored=True)
 
 def do_vpc(vpc_name):
