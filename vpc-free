@@ -1,0 +1,251 @@
+#!/usr/bin/env python
+import math
+import sys
+import struct
+from re import match
+from socket import inet_aton, inet_ntoa
+import boto3
+
+EC2 = boto3.client('ec2')
+
+def get_vpc(vpcid):
+    """
+    get_vpc returns an AWS VPC for the given VPC ID or Name tag.
+    """
+
+    for vpc in EC2.describe_vpcs()['Vpcs']:
+        if vpc['VpcId'] == vpcid:
+            return vpc
+        for tag in vpc['Tags']:
+            if tag['Key'] == 'Name' and tag['Value'] == vpcid:
+                return vpc
+    return None
+
+def name_by_id(resource, key):
+    """
+    name_by_id returns the printable name of an AWS resource using the given
+    id field.
+    """
+
+    if 'Tags' in resource:
+        for tag in resource['Tags']:
+            if tag['Key'] == 'Name':
+                return '{} ({})'.format(resource[key], tag['Value'])
+
+    return resource[key]
+
+def cidr_to_range(cidr, descr=None):
+    """
+    cidr_to_range return a tuple countaing to the lower and upper bound of a
+    CIDR block as 32bit integers.
+    """
+
+    addr_str, mask_str = cidr.split('/')
+    addr = struct.unpack("!I", inet_aton(addr_str))[0]
+    mask = int(mask_str)
+    return (addr, addr + 2 ** (32 - mask) - 1, descr)
+
+def min_mask(addr):
+    """
+    min_mask returns the smallest mask width that can be used without mutating
+    the given network address.
+    """
+
+    mask = 0
+    for i in range(0, 32):
+        mask |= 1 << (31 - i)
+        if addr == addr & mask:
+            return i + 1
+
+    raise OverflowError('this should never happen')
+
+def range_to_info(cidr):
+    """
+    range_to_info converts a tuple containing the integral lower and upper
+    bound of a CIDR block into a tuple containing printable IP information.
+    """
+
+    min_addr = inet_ntoa(struct.pack("!I", cidr[0]))
+    max_addr = inet_ntoa(struct.pack("!I", cidr[1]))
+    size = cidr[1] - cidr[0] + 1
+
+    mask_str = ''
+    mask = 32 - int(math.log(cidr[1] - cidr[0] + 1, 2))
+    snmask = 0xFFFFFFFF ^ (1 << 32 - mask) - 1
+    if cidr[0] == cidr[0] & snmask:
+        bcast = cidr[0] | (0xFFFFFFFF ^ snmask)
+        if cidr[1] == bcast:
+            mask_str = '/{}'.format(mask)
+        else:
+            mask_str = '/{}+'.format(mask)
+    else:
+        mask_str = '/{}*'.format(max(mask, min_mask(cidr[0])))
+
+    return (min_addr, max_addr, mask_str, size)
+
+
+def is_overlap(parent, child):
+    """
+    is_overlap returns True if the child IP range overlaps the parent in any way.
+    """
+
+    if child[0] >= parent[0] and child[0] <= parent[1]:
+        return True
+    if child[1] >= parent[0] and child[1] <= parent[1]:
+        return True
+    return False
+
+def get_free(parent, taken):
+    """
+    get_free returns an array of tuple containing all taken and free IP blocks
+    for the given parent IP range.
+    """
+
+    if not taken:
+        return [parent]
+
+    taken.sort(key=lambda tup: tup[0])
+    blocks = []
+
+    first = True
+    peak = 0
+    for i in range(0, len(taken)):
+        block = taken[i]
+        if is_overlap(parent, block):
+            if first:
+                if block[0] > parent[0]:
+                    blocks.append((parent[0], block[0] - 1, 'FREE'))
+                first = False
+
+            blocks.append(block)
+
+            if peak <= block[1]:
+                peak = block[1] + 1
+
+            if i < len(taken) - 1:
+                upper = min(parent[1], taken[i+1][0] - 1)
+            else:
+                upper = parent[1]
+
+            if block[1] < upper:
+                blocks.append((block[1] + 1, upper, 'FREE'))
+
+    return blocks
+
+def print_table(data, headers=None, colored=False):
+    """
+    print_table prints the given dataset as a formated table.
+    """
+
+    first_column = 0
+    if colored:
+        first_column = 1
+    columns = [0]
+    def print_row(row):
+        """
+        print_row prints a single row in a dataset.
+        """
+
+        sys.stdout.write('\x1b[{}m'.format(row[0]))
+        for i in range(1, len(row)):
+            if i > 1:
+                sys.stdout.write(' ')
+            sys.stdout.write('%-*s' % (columns[i], row[i]))
+        sys.stdout.write('\x1b[0m\n')
+
+    if headers:
+        for i in range(0, len(headers)):
+            columns.append(len(headers[i]))
+        if colored:
+            headers.insert(0, '')
+
+    for row in data:
+        for i in range(first_column, len(row)):
+            while len(columns) < len(row):
+                columns.append(0)
+            width = len(str(row[i]))
+            if columns[i] < width:
+                columns[i] = width
+
+    if headers:
+        print_row(headers)
+
+    for row in data:
+        print_row(row)
+
+    sys.stdout.flush()
+
+def print_blocks(blocks):
+    """
+    print_blocks prints a list of IP blocks in colored, tabular format.
+    """
+
+    data = []
+    for block in blocks:
+        color = 90 # dark gray
+        if block[2] == 'FREE':
+            color = 32 # green
+        iprange = range_to_info(block)
+        data.append((color, iprange[0], iprange[1], iprange[2], iprange[3], block[2]))
+
+    print_table(data,
+                headers=['MIN IP', 'MAX IP', 'MASK', 'SIZE', 'LABEL'],
+                colored=True)
+
+def do_vpc(vpc_name):
+    """
+    do_vpc finds and prints free ip blocks between subnets in a VPC.
+    """
+
+    vpc = get_vpc(vpc_name)
+    if not vpc:
+        sys.stderr.write('VPC not found\n')
+        sys.exit(1)
+
+    vpc_r = cidr_to_range(vpc['CidrBlock'])
+
+    # get list of taken ip blocks
+    subnets = EC2.describe_subnets(Filters=[{
+        'Name': 'vpc-id', 'Values': [vpc['VpcId']]
+    }])['Subnets']
+
+    taken = []
+    for subnet in subnets:
+        name = name_by_id(subnet, 'SubnetId')
+        subnet_r = cidr_to_range(subnet['CidrBlock'], name)
+        taken.append(subnet_r)
+
+    # build and print table
+    print_blocks(get_free(vpc_r, taken))
+
+def do_cidr(cidr):
+    """
+    do_cidr find and prints free ip blocks between VPCs in a CIDR block.
+    """
+
+    cidr_r = cidr_to_range(cidr)
+    vpcs = EC2.describe_vpcs()['Vpcs']
+    taken = []
+    for vpc in vpcs:
+        name = name_by_id(vpc, 'VpcId')
+        vpc_r = cidr_to_range(vpc['CidrBlock'], name)
+        taken.append(vpc_r)
+
+    # build and print table
+    print_blocks(get_free(cidr_r, taken))
+
+
+def main():
+    """
+    main executes the main thread.
+    """
+
+    if len(sys.argv) < 2:
+        do_vpc('DEFAULT')
+    elif match(r"^[0-9\.]+/[0-9]+$", sys.argv[1]):
+        do_cidr(sys.argv[1])
+    else:
+        do_vpc(sys.argv[1])
+
+if __name__ == '__main__':
+    main()
