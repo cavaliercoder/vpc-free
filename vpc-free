@@ -59,7 +59,7 @@ def min_mask(addr):
 
     raise OverflowError('this should never happen')
 
-def range_to_info(cidr):
+def range_to_info(cidr, compute_best=False):
     """
     range_to_info converts a tuple containing the integral lower and upper
     bound of a CIDR block into a tuple containing printable IP information.
@@ -75,12 +75,14 @@ def range_to_info(cidr):
     snmask = 0xFFFFFFFF ^ (1 << 32 - mask) - 1
     n_addr = cidr[0] & snmask
     if cidr[0] == n_addr:
+        if compute_best:
+            best_str = '{}/{}'.format(min_addr, mask)
+
         bcast = cidr[0] | (0xFFFFFFFF ^ snmask)
         if cidr[1] == bcast:
             mask_str = '/{}'.format(mask)
-        else:
-            best_str = '{}/{}'.format(min_addr, mask)
-    else:
+
+    elif compute_best:
         # increment network by 1
         n_addr += 2 ** (32 - mask)
         mask = 32 - int(math.log(cidr[1] - n_addr + 1, 2))
@@ -187,10 +189,12 @@ def print_blocks(blocks):
 
     data = []
     for block in blocks:
+        compute_best = False
         color = 90 # dark gray
         if block[2] == 'FREE':
+            compute_best = True
             color = 32 # green
-        iprange = range_to_info(block)
+        iprange = range_to_info(block, compute_best)
         data.append((color, iprange[0], iprange[1], iprange[2], iprange[3], iprange[4], block[2]))
 
     print_table(data,
