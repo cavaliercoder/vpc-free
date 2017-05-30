@@ -37,7 +37,7 @@ def name_by_id(resource, key):
 
 def cidr_to_range(cidr, descr=None):
     """
-    cidr_to_range return a tuple countaing to the lower and upper bound of a
+    cidr_to_range return a tuple countaining the lower and upper bound of a
     CIDR block as 32bit integers.
     """
 
@@ -91,7 +91,7 @@ def is_overlap(parent, child):
 
 def get_free(parent, taken):
     """
-    get_free returns an array of tuple containing all taken and free IP blocks
+    get_free returns an array of tuples containing all taken and free IP blocks
     for the given parent IP range.
     """
 
@@ -129,7 +129,7 @@ def get_free(parent, taken):
 
 def print_table(data, headers=None, colored=False):
     """
-    print_table prints the given dataset as a formated table.
+    print_table prints the given dataset as a formatted table.
     """
 
     first_column = 0
