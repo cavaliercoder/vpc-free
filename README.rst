@@ -50,7 +50,7 @@ Examples
     10.64.0.0 10.64.255.255  /16  65536                 vpc-c4871ca0 (Demo)
     10.65.0.0 10.255.255.255      12517376 10.128.0.0/9 FREE
 
-    # search for unallocated block between subnets in a VPC
+    # search for unallocated blocks between subnets in a VPC
     $ vpc-free vpc-c4671caf
     10.64.0.0  10.64.15.255  /20  4096                 subnet-74247002 (Subnet 1)
     10.64.16.0 10.64.31.255  /20  4096                 subnet-d32421a5 (Subnet 2)
