@@ -115,9 +115,11 @@ def get_free(parent, taken):
     blocks = []
 
     first = True
+    all_free = True
     for i in range(0, len(taken)):
         block = taken[i]
         if is_overlap(parent, block):
+            all_free = False
             if first:
                 if block[0] > parent[0]:
                     blocks.append((parent[0], block[0] - 1, 'FREE'))
@@ -132,6 +134,9 @@ def get_free(parent, taken):
 
             if block[1] < upper:
                 blocks.append((block[1] + 1, upper, 'FREE'))
+
+    if all_free:
+        blocks.append((parent[0], parent[1], 'FREE'))
 
     return blocks
 
