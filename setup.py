@@ -22,7 +22,7 @@ def get_version():
 
 setup(name='vpc-free',
       version=get_version(),
-      description='Find free IP blocks in AWS EC2',
+      description='Find free IP address blocks in AWS EC2',
       long_description=open('README.rst').read(),
       url='http://github.com/cavaliercoder/vpc-free',
       author='Ryan Armstrong',
