@@ -115,7 +115,6 @@ def get_free(parent, taken):
     blocks = []
 
     first = True
-    peak = 0
     for i in range(0, len(taken)):
         block = taken[i]
         if is_overlap(parent, block):
@@ -125,9 +124,6 @@ def get_free(parent, taken):
                 first = False
 
             blocks.append(block)
-
-            if peak <= block[1]:
-                peak = block[1] + 1
 
             if i < len(taken) - 1:
                 upper = min(parent[1], taken[i+1][0] - 1)
