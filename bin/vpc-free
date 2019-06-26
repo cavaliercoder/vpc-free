@@ -54,36 +54,51 @@ def cidr_to_range(cidr, descr=None):
     mask = int(mask_str)
     return (addr, addr + 2 ** (32 - mask) - 1, descr)
 
-def range_to_info(cidr, compute_best=False):
+def range_to_info(cidr):
     """
     range_to_info converts a tuple containing the integral lower and upper
-    bound of a CIDR block into a tuple containing printable IP information.
+    bound of a subnet into a tuple containing printable IP information.
     """
 
     min_addr = inet_ntoa(struct.pack("!I", cidr[0]))
     max_addr = inet_ntoa(struct.pack("!I", cidr[1]))
     size = cidr[1] - cidr[0] + 1
-
-    mask_str = ''
-    best_str = ''
     mask = 32 - int(math.log(cidr[1] - cidr[0] + 1, 2))
+    mask_str = '/{}'.format(mask)
+
+    return (min_addr, max_addr, mask_str, size, '')
+
+def range_to_best(cidr, rqdmask=0):
+    """
+    range_to_best takes a tuple containing the integaral lower and upper
+    bound of an unused ip range and returns a tuple containing printable IP
+    information and the best subnet that can be created within that range.
+    If the optional rqdmask parameter is set it will only return a best
+    subnet if one with that size mask can be created.
+    """
+    min_addr = inet_ntoa(struct.pack("!I", cidr[0]))
+    max_addr = inet_ntoa(struct.pack("!I", cidr[1]))
+    size = cidr[1] - cidr[0] + 1
+
+    best_str = ''
+
+    mask = rqdmask if rqdmask != 0 else 32 - int(math.log(cidr[1] - cidr[0] + 1, 2))
     snmask = 0xFFFFFFFF ^ (1 << 32 - mask) - 1
     n_addr = cidr[0] & snmask
     if cidr[0] == n_addr:
-        if compute_best:
-            best_str = '{}/{}'.format(min_addr, mask)
-
         bcast = cidr[0] | (0xFFFFFFFF ^ snmask)
-        if cidr[1] == bcast:
-            mask_str = '/{}'.format(mask)
-
-    elif compute_best:
+        if bcast <= cidr[1]:
+            best_str = '{}/{}'.format(min_addr, mask)
+    else:
         # increment network by 1
-        n_addr += 2 ** (32 - mask)
-        mask = 32 - int(math.log(cidr[1] - n_addr + 1, 2))
-        best_str = '{}/{}'.format(inet_ntoa(struct.pack("!I", n_addr)), mask)
+        n_addr += 1 << 32 - mask
+        mask = rqdmask if rqdmask != 0 else 32 - int(math.log(cidr[1] - n_addr + 1, 2))
+        bcast = n_addr + (1 << 32 - mask) - 1  
 
-    return (min_addr, max_addr, mask_str, size, best_str)
+        if cidr[1] >= bcast:
+            best_str = '{}/{}'.format(inet_ntoa(struct.pack("!I", n_addr)), mask)
+
+    return (min_addr, max_addr, '', size, best_str)
 
 
 def is_overlap(parent, child):
@@ -187,21 +202,24 @@ def print_blocks(blocks):
     for block in blocks:
         compute_best = False
         color = 90 # dark gray
+        iprange = []
         if block[2] == 'FREE':
             compute_best = True
             color = 32 # green
-        iprange = range_to_info(block, compute_best)
+            iprange = range_to_best(block)
+        else:
+            iprange = range_to_info(block)
+
         data.append((color, iprange[0], iprange[1], iprange[2], iprange[3], iprange[4], block[2]))
 
     print_table(data,
                 headers=['MIN IP', 'MAX IP', 'MASK', 'SIZE', 'BEST', 'LABEL'],
                 colored=True)
 
-def do_vpc(vpc_name):
+def get_blocks(vpc_name):
     """
-    do_vpc finds and prints free ip blocks between subnets in a VPC.
+    get_blocks returns a list of tuples for all allocated and free netblocks in a VPC 
     """
-
     vpc = get_vpc(vpc_name)
     if not vpc:
         sys.stderr.write('VPC not found\n')
@@ -216,8 +234,30 @@ def do_vpc(vpc_name):
         name = name_by_id(subnet, 'SubnetId')
         subnet_r = cidr_to_range(subnet['CidrBlock'], name)
         taken.append(subnet_r)
+    
+    return get_free(vpc_r, taken)
 
-    print_blocks(get_free(vpc_r, taken))
+def do_block(vpc_name, num_hosts):
+    """
+    do_block prints the CIDR block for the smallest available subnet that can fit required number of ips
+    Takes naive approach to allocation and attempts to fill parent range from front to back.
+    """ 
+    blocks = get_blocks(vpc_name)
+
+    ips_required = num_hosts + 5 # AWS reserves 5 ips in each subnet
+    cidr_mask = int(32 - math.ceil(math.log(ips_required,2)))
+
+    for gap in filter(lambda b: b[2] == ('FREE'), blocks):
+        best_info = range_to_best(gap, cidr_mask)
+        if best_info[4] != '':
+            print best_info[4]
+            return
+
+def do_vpc(vpc_name):
+    """
+    do_vpc finds and prints free ip blocks between subnets in a VPC.
+    """
+    print_blocks(get_blocks(vpc_name))
 
 def do_cidr(cidr):
     """
@@ -246,11 +286,17 @@ def main():
     parser.add_argument('target',
                         metavar='TARGET',
                         help='CIDR, VPC ID or VPC Name to search')
+    parser.add_argument('--hosts',
+                        type=int,
+                        metavar='HOSTS',
+                        help='Number of free IPs needed in subnet')
 
     args = parser.parse_args()
 
     if match(r"^[0-9\.]+/[0-9]+$", args.target):
         do_cidr(args.target)
+    elif args.hosts: 
+        do_block(args.target, args.hosts)
     else:
         do_vpc(args.target)
 
